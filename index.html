@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en-us">
+  <head>
+    <meta charset="UTF-8">
+    <title>Predmachlearn by ELearningRufian</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" type="text/css" href="stylesheets/normalize.css" media="screen">
+    <link href='https://fonts.googleapis.com/css?family=Open+Sans:400,700' rel='stylesheet' type='text/css'>
+    <link rel="stylesheet" type="text/css" href="stylesheets/stylesheet.css" media="screen">
+    <link rel="stylesheet" type="text/css" href="stylesheets/github-light.css" media="screen">
+  </head>
+  <body>
+    <section class="page-header">
+      <h1 class="project-name">Predmachlearn</h1>
+      <h2 class="project-tagline"></h2>
+      <a href="https://github.com/ELearningRufian/predmachlearn" class="btn">View on GitHub</a>
+      <a href="https://github.com/ELearningRufian/predmachlearn/zipball/master" class="btn">Download .zip</a>
+      <a href="https://github.com/ELearningRufian/predmachlearn/tarball/master" class="btn">Download .tar.gz</a>
+    </section>
+
+    <section class="main-content">
+      <hr>
+
+<p>title: "Predicting the quality of dumbbell curl exercises"
+author: "Eusebio Rufian-Zilbermann"
+output: html_document</p>
+
+<h2>
+<a id="geometry-top05in-bottom1in" class="anchor" href="#geometry-top05in-bottom1in" aria-hidden="true"><span class="octicon octicon-link"></span></a>geometry: top=0.5in, bottom=1in</h2>
+
+<div class="highlight highlight-source-r"><pre>require(<span class="pl-smi">doParallel</span>)
+require(<span class="pl-smi">nnet</span>)
+require(<span class="pl-smi">caret</span>)
+require(<span class="pl-smi">dplyr</span>)
+require(<span class="pl-smi">ggplot2</span>)
+require(<span class="pl-smi">randomForest</span>)
+require(<span class="pl-smi">e1071</span>)
+<span class="pl-smi">cl</span> <span class="pl-k">&lt;-</span> makeCluster(detectCores())
+registerDoParallel(<span class="pl-smi">cl</span>)
+set.seed(<span class="pl-c1">13234</span>)
+<span class="pl-smi">pml</span><span class="pl-k">&lt;-</span>read.csv2(<span class="pl-s"><span class="pl-pds">"</span>pml-training.csv<span class="pl-pds">"</span></span>, <span class="pl-v">header</span><span class="pl-k">=</span><span class="pl-c1">TRUE</span>, <span class="pl-v">sep</span> <span class="pl-k">=</span> <span class="pl-s"><span class="pl-pds">"</span>,<span class="pl-pds">"</span></span>, <span class="pl-v">dec</span><span class="pl-k">=</span><span class="pl-s"><span class="pl-pds">"</span>.<span class="pl-pds">"</span></span>, <span class="pl-v">na.strings</span><span class="pl-k">=</span><span class="pl-s"><span class="pl-pds">"</span>NA<span class="pl-pds">"</span></span>)
+<span class="pl-smi">partitionFactor</span><span class="pl-k">&lt;-</span>transmute(<span class="pl-smi">pml</span>,paste(toString(<span class="pl-smi">user_name</span>[<span class="pl-c1">1</span>]),toString(<span class="pl-smi">classe</span>[<span class="pl-c1">1</span>]),<span class="pl-v">sep</span><span class="pl-k">=</span><span class="pl-s"><span class="pl-pds">"</span><span class="pl-pds">"</span></span>))
+<span class="pl-v">inTrain</span> <span class="pl-k">=</span> createDataPartition(<span class="pl-smi">partitionFactor</span>[,<span class="pl-c1">1</span>],<span class="pl-v">p</span><span class="pl-k">=</span><span class="pl-c1">0.6</span>,<span class="pl-v">list</span><span class="pl-k">=</span><span class="pl-c1">FALSE</span>)
+<span class="pl-c"># Apologies for the ugly use of copy..paste programming</span>
+<span class="pl-c"># Some refactoring would be appropriate (if I have the time to do it...)</span>
+<span class="pl-v">pml16f</span> <span class="pl-k">=</span> <span class="pl-smi">pml</span>[grepl(<span class="pl-s"><span class="pl-pds">"</span>^classe$|^roll_|^yaw_|^pitch_|^total_accel_<span class="pl-pds">"</span></span>,names(<span class="pl-smi">pml</span>))]
+<span class="pl-v">training16f</span> <span class="pl-k">=</span> <span class="pl-smi">pml16f</span>[ <span class="pl-smi">inTrain</span>,]
+<span class="pl-v">testing16f</span> <span class="pl-k">=</span> <span class="pl-smi">pml16f</span>[<span class="pl-k">-</span><span class="pl-smi">inTrain</span>,]
+<span class="pl-v">pml52f</span> <span class="pl-k">=</span> <span class="pl-smi">pml</span>[grepl(<span class="pl-s"><span class="pl-pds">"</span>^classe$|^roll_|^yaw_|^pitch_|^total_accel_|_x$|_y$|_z$<span class="pl-pds">"</span></span>,names(<span class="pl-smi">pml</span>))]
+<span class="pl-v">training52f</span> <span class="pl-k">=</span> <span class="pl-smi">pml52f</span>[ <span class="pl-smi">inTrain</span>,]
+<span class="pl-v">testing52f</span> <span class="pl-k">=</span> <span class="pl-smi">pml52f</span>[<span class="pl-k">-</span><span class="pl-smi">inTrain</span>,]
+<span class="pl-v">pml88f</span> <span class="pl-k">=</span> <span class="pl-smi">pml52f</span> %<span class="pl-k">&gt;</span>% 
+  mutate(<span class="pl-v">gyros_belt_xy</span><span class="pl-k">=</span><span class="pl-smi">gyros_belt_x</span><span class="pl-k">*</span><span class="pl-smi">gyros_belt_y</span>) %<span class="pl-k">&gt;</span>%
+    mutate(<span class="pl-v">gyros_belt_xz</span><span class="pl-k">=</span><span class="pl-smi">gyros_belt_x</span><span class="pl-k">*</span><span class="pl-smi">gyros_belt_z</span>) %<span class="pl-k">&gt;</span>%
+    mutate(<span class="pl-v">gyros_belt_yz</span><span class="pl-k">=</span><span class="pl-smi">gyros_belt_y</span><span class="pl-k">*</span><span class="pl-smi">gyros_belt_z</span>) %<span class="pl-k">&gt;</span>%
+    mutate(<span class="pl-v">accel_belt_xy</span><span class="pl-k">=</span><span class="pl-smi">accel_belt_x</span><span class="pl-k">*</span><span class="pl-smi">accel_belt_y</span>) %<span class="pl-k">&gt;</span>%
+    mutate(<span class="pl-v">accel_belt_xz</span><span class="pl-k">=</span><span class="pl-smi">accel_belt_x</span><span class="pl-k">*</span><span class="pl-smi">accel_belt_z</span>) %<span class="pl-k">&gt;</span>%
+    mutate(<span class="pl-v">accel_belt_yz</span><span class="pl-k">=</span><span class="pl-smi">accel_belt_y</span><span class="pl-k">*</span><span class="pl-smi">accel_belt_z</span>) %<span class="pl-k">&gt;</span>%
+    mutate(<span class="pl-v">magnet_belt_xy</span><span class="pl-k">=</span><span class="pl-smi">magnet_belt_x</span><span class="pl-k">*</span><span class="pl-smi">magnet_belt_y</span>) %<span class="pl-k">&gt;</span>%
+    mutate(<span class="pl-v">magnet_belt_xz</span><span class="pl-k">=</span><span class="pl-smi">magnet_belt_x</span><span class="pl-k">*</span><span class="pl-smi">magnet_belt_z</span>) %<span class="pl-k">&gt;</span>%
+    mutate(<span class="pl-v">magnet_belt_yz</span><span class="pl-k">=</span><span class="pl-smi">magnet_belt_y</span><span class="pl-k">*</span><span class="pl-smi">magnet_belt_z</span>) %<span class="pl-k">&gt;</span>%
+    mutate(<span class="pl-v">gyros_arm_xy</span><span class="pl-k">=</span><span class="pl-smi">gyros_arm_x</span><span class="pl-k">*</span><span class="pl-smi">gyros_arm_y</span>) %<span class="pl-k">&gt;</span>%
+    mutate(<span class="pl-v">gyros_arm_xz</span><span class="pl-k">=</span><span class="pl-smi">gyros_arm_x</span><span class="pl-k">*</span><span class="pl-smi">gyros_arm_z</span>) %<span class="pl-k">&gt;</span>%
+    mutate(<span class="pl-v">gyros_arm_yz</span><span class="pl-k">=</span><span class="pl-smi">gyros_arm_y</span><span class="pl-k">*</span><span class="pl-smi">gyros_arm_z</span>) %<span class="pl-k">&gt;</span>%
+    mutate(<span class="pl-v">accel_arm_xy</span><span class="pl-k">=</span><span class="pl-smi">accel_arm_x</span><span class="pl-k">*</span><span class="pl-smi">accel_arm_y</span>) %<span class="pl-k">&gt;</span>%
+    mutate(<span class="pl-v">accel_arm_xz</span><span class="pl-k">=</span><span class="pl-smi">accel_arm_x</span><span class="pl-k">*</span><span class="pl-smi">accel_arm_z</span>) %<span class="pl-k">&gt;</span>%
+    mutate(<span class="pl-v">accel_arm_yz</span><span class="pl-k">=</span><span class="pl-smi">accel_arm_y</span><span class="pl-k">*</span><span class="pl-smi">accel_arm_z</span>) %<span class="pl-k">&gt;</span>%
+    mutate(<span class="pl-v">magnet_arm_xy</span><span class="pl-k">=</span><span class="pl-smi">magnet_arm_x</span><span class="pl-k">*</span><span class="pl-smi">magnet_arm_y</span>) %<span class="pl-k">&gt;</span>%
+    mutate(<span class="pl-v">magnet_arm_xz</span><span class="pl-k">=</span><span class="pl-smi">magnet_arm_x</span><span class="pl-k">*</span><span class="pl-smi">magnet_arm_z</span>) %<span class="pl-k">&gt;</span>%
+    mutate(<span class="pl-v">magnet_arm_yz</span><span class="pl-k">=</span><span class="pl-smi">magnet_arm_y</span><span class="pl-k">*</span><span class="pl-smi">magnet_arm_z</span>) %<span class="pl-k">&gt;</span>%
+    mutate(<span class="pl-v">gyros_dumbbell_xy</span><span class="pl-k">=</span><span class="pl-smi">gyros_dumbbell_x</span><span class="pl-k">*</span><span class="pl-smi">gyros_dumbbell_y</span>) %<span class="pl-k">&gt;</span>%
+    mutate(<span class="pl-v">gyros_dumbbell_xz</span><span class="pl-k">=</span><span class="pl-smi">gyros_dumbbell_x</span><span class="pl-k">*</span><span class="pl-smi">gyros_dumbbell_z</span>) %<span class="pl-k">&gt;</span>%
+    mutate(<span class="pl-v">gyros_dumbbell_yz</span><span class="pl-k">=</span><span class="pl-smi">gyros_dumbbell_y</span><span class="pl-k">*</span><span class="pl-smi">gyros_dumbbell_z</span>) %<span class="pl-k">&gt;</span>%
+    mutate(<span class="pl-v">accel_dumbbell_xy</span><span class="pl-k">=</span><span class="pl-smi">accel_dumbbell_x</span><span class="pl-k">*</span><span class="pl-smi">accel_dumbbell_y</span>) %<span class="pl-k">&gt;</span>%
+    mutate(<span class="pl-v">accel_dumbbell_xz</span><span class="pl-k">=</span><span class="pl-smi">accel_dumbbell_x</span><span class="pl-k">*</span><span class="pl-smi">accel_dumbbell_z</span>) %<span class="pl-k">&gt;</span>%
+    mutate(<span class="pl-v">accel_dumbbell_yz</span><span class="pl-k">=</span><span class="pl-smi">accel_dumbbell_y</span><span class="pl-k">*</span><span class="pl-smi">accel_dumbbell_z</span>) %<span class="pl-k">&gt;</span>%
+    mutate(<span class="pl-v">magnet_dumbbell_xy</span><span class="pl-k">=</span><span class="pl-smi">magnet_dumbbell_x</span><span class="pl-k">*</span><span class="pl-smi">magnet_dumbbell_y</span>) %<span class="pl-k">&gt;</span>%
+    mutate(<span class="pl-v">magnet_dumbbell_xz</span><span class="pl-k">=</span><span class="pl-smi">magnet_dumbbell_x</span><span class="pl-k">*</span><span class="pl-smi">magnet_dumbbell_z</span>) %<span class="pl-k">&gt;</span>%
+    mutate(<span class="pl-v">magnet_dumbbell_yz</span><span class="pl-k">=</span><span class="pl-smi">magnet_dumbbell_y</span><span class="pl-k">*</span><span class="pl-smi">magnet_dumbbell_z</span>) %<span class="pl-k">&gt;</span>%
+    mutate(<span class="pl-v">gyros_forearm_xy</span><span class="pl-k">=</span><span class="pl-smi">gyros_forearm_x</span><span class="pl-k">*</span><span class="pl-smi">gyros_forearm_y</span>) %<span class="pl-k">&gt;</span>%
+    mutate(<span class="pl-v">gyros_forearm_xz</span><span class="pl-k">=</span><span class="pl-smi">gyros_forearm_x</span><span class="pl-k">*</span><span class="pl-smi">gyros_forearm_z</span>) %<span class="pl-k">&gt;</span>%
+    mutate(<span class="pl-v">gyros_forearm_yz</span><span class="pl-k">=</span><span class="pl-smi">gyros_forearm_y</span><span class="pl-k">*</span><span class="pl-smi">gyros_forearm_z</span>) %<span class="pl-k">&gt;</span>%
+    mutate(<span class="pl-v">accel_forearm_xy</span><span class="pl-k">=</span><span class="pl-smi">accel_forearm_x</span><span class="pl-k">*</span><span class="pl-smi">accel_forearm_y</span>) %<span class="pl-k">&gt;</span>%
+    mutate(<span class="pl-v">accel_forearm_xz</span><span class="pl-k">=</span><span class="pl-smi">accel_forearm_x</span><span class="pl-k">*</span><span class="pl-smi">accel_forearm_z</span>) %<span class="pl-k">&gt;</span>%
+    mutate(<span class="pl-v">accel_forearm_yz</span><span class="pl-k">=</span><span class="pl-smi">accel_forearm_y</span><span class="pl-k">*</span><span class="pl-smi">accel_forearm_z</span>) %<span class="pl-k">&gt;</span>%
+    mutate(<span class="pl-v">magnet_forearm_xy</span><span class="pl-k">=</span><span class="pl-smi">magnet_forearm_x</span><span class="pl-k">*</span><span class="pl-smi">magnet_forearm_y</span>) %<span class="pl-k">&gt;</span>%
+    mutate(<span class="pl-v">magnet_forearm_xz</span><span class="pl-k">=</span><span class="pl-smi">magnet_forearm_x</span><span class="pl-k">*</span><span class="pl-smi">magnet_forearm_z</span>) %<span class="pl-k">&gt;</span>%
+    mutate(<span class="pl-v">magnet_forearm_yz</span><span class="pl-k">=</span><span class="pl-smi">magnet_forearm_y</span><span class="pl-k">*</span><span class="pl-smi">magnet_forearm_z</span>) 
+<span class="pl-v">training88f</span> <span class="pl-k">=</span> <span class="pl-smi">pml88f</span>[ <span class="pl-smi">inTrain</span>,]
+<span class="pl-v">testing88f</span> <span class="pl-k">=</span> <span class="pl-smi">pml88f</span>[<span class="pl-k">-</span><span class="pl-smi">inTrain</span>,]
+<span class="pl-v">rfMod16f</span> <span class="pl-k">=</span> train(<span class="pl-smi">classe</span><span class="pl-k">~</span>.,<span class="pl-v">data</span><span class="pl-k">=</span><span class="pl-smi">training16f</span>,<span class="pl-v">method</span><span class="pl-k">=</span><span class="pl-s"><span class="pl-pds">"</span>rf<span class="pl-pds">"</span></span>,
+                 <span class="pl-v">trControl</span><span class="pl-k">=</span>trainControl(<span class="pl-v">method</span><span class="pl-k">=</span><span class="pl-s"><span class="pl-pds">"</span>cv<span class="pl-pds">"</span></span>))
+<span class="pl-v">rfPred16f</span> <span class="pl-k">=</span> predict(<span class="pl-smi">rfMod16f</span>,<span class="pl-smi">testing16f</span>)
+<span class="pl-v">rfMod52f</span> <span class="pl-k">=</span> train(<span class="pl-smi">classe</span><span class="pl-k">~</span>.,<span class="pl-v">data</span><span class="pl-k">=</span><span class="pl-smi">training52f</span>,<span class="pl-v">method</span><span class="pl-k">=</span><span class="pl-s"><span class="pl-pds">"</span>rf<span class="pl-pds">"</span></span>,
+                 <span class="pl-v">trControl</span><span class="pl-k">=</span>trainControl(<span class="pl-v">method</span><span class="pl-k">=</span><span class="pl-s"><span class="pl-pds">"</span>cv<span class="pl-pds">"</span></span>))
+<span class="pl-v">rfPred52f</span> <span class="pl-k">=</span> predict(<span class="pl-smi">rfMod52f</span>,<span class="pl-smi">testing52f</span>)
+<span class="pl-v">rfMod88f</span> <span class="pl-k">=</span> train(<span class="pl-smi">classe</span><span class="pl-k">~</span>.,<span class="pl-v">data</span><span class="pl-k">=</span><span class="pl-smi">training88f</span>,<span class="pl-v">method</span><span class="pl-k">=</span><span class="pl-s"><span class="pl-pds">"</span>rf<span class="pl-pds">"</span></span>,
+                 <span class="pl-v">trControl</span><span class="pl-k">=</span>trainControl(<span class="pl-v">method</span><span class="pl-k">=</span><span class="pl-s"><span class="pl-pds">"</span>cv<span class="pl-pds">"</span></span>))
+<span class="pl-v">rfPred88f</span> <span class="pl-k">=</span> predict(<span class="pl-smi">rfMod88f</span>,<span class="pl-smi">testing88f</span>)
+<span class="pl-v">nnMod16f</span> <span class="pl-k">=</span> multinom(<span class="pl-smi">classe</span><span class="pl-k">~</span>.,<span class="pl-v">data</span><span class="pl-k">=</span><span class="pl-smi">training16f</span>)
+<span class="pl-smi">nnPred16f</span><span class="pl-k">&lt;-</span>predict(<span class="pl-smi">nnMod16f</span>,<span class="pl-smi">testing16f</span>)
+<span class="pl-v">nnMod52f</span> <span class="pl-k">=</span> multinom(<span class="pl-smi">classe</span><span class="pl-k">~</span>.,<span class="pl-v">data</span><span class="pl-k">=</span><span class="pl-smi">training52f</span>,<span class="pl-v">maxit</span><span class="pl-k">=</span><span class="pl-c1">250</span>)
+<span class="pl-smi">nnPred52f</span><span class="pl-k">&lt;-</span>predict(<span class="pl-smi">nnMod52f</span>,<span class="pl-smi">testing52f</span>)
+<span class="pl-v">nnMod88f</span> <span class="pl-k">=</span> multinom(<span class="pl-smi">classe</span><span class="pl-k">~</span>.,<span class="pl-v">data</span><span class="pl-k">=</span><span class="pl-smi">training88f</span>,<span class="pl-v">maxit</span><span class="pl-k">=</span><span class="pl-c1">500</span>)
+<span class="pl-smi">nnPred88f</span><span class="pl-k">&lt;-</span>predict(<span class="pl-smi">nnMod88f</span>,<span class="pl-smi">testing88f</span>)
+<span class="pl-smi">logModA16f</span><span class="pl-k">&lt;-</span>glm(<span class="pl-smi">classe</span><span class="pl-k">~</span>.,mutate(<span class="pl-smi">training16f</span>,<span class="pl-v">classe</span><span class="pl-k">=</span>ifelse(<span class="pl-smi">classe</span><span class="pl-k">==</span><span class="pl-s"><span class="pl-pds">"</span>A<span class="pl-pds">"</span></span>,<span class="pl-c1">TRUE</span>,<span class="pl-c1">FALSE</span>)),
+                <span class="pl-v">family</span><span class="pl-k">=</span><span class="pl-s"><span class="pl-pds">"</span>binomial<span class="pl-pds">"</span></span>,<span class="pl-v">maxit</span><span class="pl-k">=</span><span class="pl-c1">100</span>)
+<span class="pl-smi">predictA16f</span><span class="pl-k">&lt;-</span>predict(<span class="pl-smi">logModA16f</span>,<span class="pl-smi">testing16f</span>,<span class="pl-v">type</span><span class="pl-k">=</span><span class="pl-s"><span class="pl-pds">"</span>response<span class="pl-pds">"</span></span>)
+<span class="pl-smi">logModB16f</span><span class="pl-k">&lt;-</span>glm(<span class="pl-smi">classe</span><span class="pl-k">~</span>.,mutate(<span class="pl-smi">training16f</span>,<span class="pl-v">classe</span><span class="pl-k">=</span>ifelse(<span class="pl-smi">classe</span><span class="pl-k">==</span><span class="pl-s"><span class="pl-pds">"</span>B<span class="pl-pds">"</span></span>,<span class="pl-c1">TRUE</span>,<span class="pl-c1">FALSE</span>)),
+                <span class="pl-v">family</span><span class="pl-k">=</span><span class="pl-s"><span class="pl-pds">"</span>binomial<span class="pl-pds">"</span></span>,<span class="pl-v">maxit</span><span class="pl-k">=</span><span class="pl-c1">100</span>)
+<span class="pl-smi">predictB16f</span><span class="pl-k">&lt;-</span>predict(<span class="pl-smi">logModB16f</span>,<span class="pl-smi">testing16f</span>,<span class="pl-v">type</span><span class="pl-k">=</span><span class="pl-s"><span class="pl-pds">"</span>response<span class="pl-pds">"</span></span>)
+<span class="pl-smi">logModC16f</span><span class="pl-k">&lt;-</span>glm(<span class="pl-smi">classe</span><span class="pl-k">~</span>.,mutate(<span class="pl-smi">training16f</span>,<span class="pl-v">classe</span><span class="pl-k">=</span>ifelse(<span class="pl-smi">classe</span><span class="pl-k">==</span><span class="pl-s"><span class="pl-pds">"</span>C<span class="pl-pds">"</span></span>,<span class="pl-c1">TRUE</span>,<span class="pl-c1">FALSE</span>)),
+                <span class="pl-v">family</span><span class="pl-k">=</span><span class="pl-s"><span class="pl-pds">"</span>binomial<span class="pl-pds">"</span></span>,<span class="pl-v">maxit</span><span class="pl-k">=</span><span class="pl-c1">100</span>)
+<span class="pl-smi">predictC16f</span><span class="pl-k">&lt;-</span>predict(<span class="pl-smi">logModC16f</span>,<span class="pl-smi">testing16f</span>,<span class="pl-v">type</span><span class="pl-k">=</span><span class="pl-s"><span class="pl-pds">"</span>response<span class="pl-pds">"</span></span>)
+<span class="pl-smi">logModD16f</span><span class="pl-k">&lt;-</span>glm(<span class="pl-smi">classe</span><span class="pl-k">~</span>.,mutate(<span class="pl-smi">training16f</span>,<span class="pl-v">classe</span><span class="pl-k">=</span>ifelse(<span class="pl-smi">classe</span><span class="pl-k">==</span><span class="pl-s"><span class="pl-pds">"</span>D<span class="pl-pds">"</span></span>,<span class="pl-c1">TRUE</span>,<span class="pl-c1">FALSE</span>)),
+                <span class="pl-v">family</span><span class="pl-k">=</span><span class="pl-s"><span class="pl-pds">"</span>binomial<span class="pl-pds">"</span></span>,<span class="pl-v">maxit</span><span class="pl-k">=</span><span class="pl-c1">100</span>)
+<span class="pl-smi">predictD16f</span><span class="pl-k">&lt;-</span>predict(<span class="pl-smi">logModD16f</span>,<span class="pl-smi">testing16f</span>,<span class="pl-v">type</span><span class="pl-k">=</span><span class="pl-s"><span class="pl-pds">"</span>response<span class="pl-pds">"</span></span>)
+<span class="pl-smi">logModE16f</span><span class="pl-k">&lt;-</span>glm(<span class="pl-smi">classe</span><span class="pl-k">~</span>.,mutate(<span class="pl-smi">training16f</span>,<span class="pl-v">classe</span><span class="pl-k">=</span>ifelse(<span class="pl-smi">classe</span><span class="pl-k">==</span><span class="pl-s"><span class="pl-pds">"</span>E<span class="pl-pds">"</span></span>,<span class="pl-c1">TRUE</span>,<span class="pl-c1">FALSE</span>)),
+                <span class="pl-v">family</span><span class="pl-k">=</span><span class="pl-s"><span class="pl-pds">"</span>binomial<span class="pl-pds">"</span></span>,<span class="pl-v">maxit</span><span class="pl-k">=</span><span class="pl-c1">100</span>)
+<span class="pl-smi">predictE16f</span><span class="pl-k">&lt;-</span>predict(<span class="pl-smi">logModE16f</span>,<span class="pl-smi">testing16f</span>,<span class="pl-v">type</span><span class="pl-k">=</span><span class="pl-s"><span class="pl-pds">"</span>response<span class="pl-pds">"</span></span>)
+<span class="pl-smi">logPredRaw16f</span><span class="pl-k">&lt;-</span><span class="pl-k">data.frame</span>(<span class="pl-smi">predictA16f</span>,<span class="pl-smi">predictB16f</span>,<span class="pl-smi">predictC16f</span>,<span class="pl-smi">predictD16f</span>,<span class="pl-smi">predictE16f</span>)
+<span class="pl-smi">logPred16f</span><span class="pl-k">&lt;-</span><span class="pl-k">factor</span>(apply(<span class="pl-smi">logPredRaw16f</span>,<span class="pl-c1">1</span>,<span class="pl-smi">which.max</span>),<span class="pl-v">labels</span><span class="pl-k">=</span>c(<span class="pl-s"><span class="pl-pds">"</span>A<span class="pl-pds">"</span></span>,<span class="pl-s"><span class="pl-pds">"</span>B<span class="pl-pds">"</span></span>,<span class="pl-s"><span class="pl-pds">"</span>C<span class="pl-pds">"</span></span>,<span class="pl-s"><span class="pl-pds">"</span>D<span class="pl-pds">"</span></span>,<span class="pl-s"><span class="pl-pds">"</span>E<span class="pl-pds">"</span></span>))
+<span class="pl-smi">logModA52f</span><span class="pl-k">&lt;-</span>glm(<span class="pl-smi">classe</span><span class="pl-k">~</span>.,mutate(<span class="pl-smi">training52f</span>,<span class="pl-v">classe</span><span class="pl-k">=</span>ifelse(<span class="pl-smi">classe</span><span class="pl-k">==</span><span class="pl-s"><span class="pl-pds">"</span>A<span class="pl-pds">"</span></span>,<span class="pl-c1">TRUE</span>,<span class="pl-c1">FALSE</span>)),
+                <span class="pl-v">family</span><span class="pl-k">=</span><span class="pl-s"><span class="pl-pds">"</span>binomial<span class="pl-pds">"</span></span>,<span class="pl-v">maxit</span><span class="pl-k">=</span><span class="pl-c1">100</span>)
+<span class="pl-smi">predictA52f</span><span class="pl-k">&lt;-</span>predict(<span class="pl-smi">logModA52f</span>,<span class="pl-smi">testing52f</span>,<span class="pl-v">type</span><span class="pl-k">=</span><span class="pl-s"><span class="pl-pds">"</span>response<span class="pl-pds">"</span></span>)
+<span class="pl-smi">logModB52f</span><span class="pl-k">&lt;-</span>glm(<span class="pl-smi">classe</span><span class="pl-k">~</span>.,mutate(<span class="pl-smi">training52f</span>,<span class="pl-v">classe</span><span class="pl-k">=</span>ifelse(<span class="pl-smi">classe</span><span class="pl-k">==</span><span class="pl-s"><span class="pl-pds">"</span>B<span class="pl-pds">"</span></span>,<span class="pl-c1">TRUE</span>,<span class="pl-c1">FALSE</span>)),
+                <span class="pl-v">family</span><span class="pl-k">=</span><span class="pl-s"><span class="pl-pds">"</span>binomial<span class="pl-pds">"</span></span>,<span class="pl-v">maxit</span><span class="pl-k">=</span><span class="pl-c1">100</span>)
+<span class="pl-smi">predictB52f</span><span class="pl-k">&lt;-</span>predict(<span class="pl-smi">logModB52f</span>,<span class="pl-smi">testing52f</span>,<span class="pl-v">type</span><span class="pl-k">=</span><span class="pl-s"><span class="pl-pds">"</span>response<span class="pl-pds">"</span></span>)
+<span class="pl-smi">logModC52f</span><span class="pl-k">&lt;-</span>glm(<span class="pl-smi">classe</span><span class="pl-k">~</span>.,mutate(<span class="pl-smi">training52f</span>,<span class="pl-v">classe</span><span class="pl-k">=</span>ifelse(<span class="pl-smi">classe</span><span class="pl-k">==</span><span class="pl-s"><span class="pl-pds">"</span>C<span class="pl-pds">"</span></span>,<span class="pl-c1">TRUE</span>,<span class="pl-c1">FALSE</span>)),
+                <span class="pl-v">family</span><span class="pl-k">=</span><span class="pl-s"><span class="pl-pds">"</span>binomial<span class="pl-pds">"</span></span>,<span class="pl-v">maxit</span><span class="pl-k">=</span><span class="pl-c1">100</span>)
+<span class="pl-smi">predictC52f</span><span class="pl-k">&lt;-</span>predict(<span class="pl-smi">logModC52f</span>,<span class="pl-smi">testing52f</span>,<span class="pl-v">type</span><span class="pl-k">=</span><span class="pl-s"><span class="pl-pds">"</span>response<span class="pl-pds">"</span></span>)
+<span class="pl-smi">logModD52f</span><span class="pl-k">&lt;-</span>glm(<span class="pl-smi">classe</span><span class="pl-k">~</span>.,mutate(<span class="pl-smi">training52f</span>,<span class="pl-v">classe</span><span class="pl-k">=</span>ifelse(<span class="pl-smi">classe</span><span class="pl-k">==</span><span class="pl-s"><span class="pl-pds">"</span>D<span class="pl-pds">"</span></span>,<span class="pl-c1">TRUE</span>,<span class="pl-c1">FALSE</span>)),
+                <span class="pl-v">family</span><span class="pl-k">=</span><span class="pl-s"><span class="pl-pds">"</span>binomial<span class="pl-pds">"</span></span>,<span class="pl-v">maxit</span><span class="pl-k">=</span><span class="pl-c1">100</span>)
+<span class="pl-smi">predictD52f</span><span class="pl-k">&lt;-</span>predict(<span class="pl-smi">logModD52f</span>,<span class="pl-smi">testing52f</span>,<span class="pl-v">type</span><span class="pl-k">=</span><span class="pl-s"><span class="pl-pds">"</span>response<span class="pl-pds">"</span></span>)
+<span class="pl-smi">logModE52f</span><span class="pl-k">&lt;-</span>glm(<span class="pl-smi">classe</span><span class="pl-k">~</span>.,mutate(<span class="pl-smi">training52f</span>,<span class="pl-v">classe</span><span class="pl-k">=</span>ifelse(<span class="pl-smi">classe</span><span class="pl-k">==</span><span class="pl-s"><span class="pl-pds">"</span>E<span class="pl-pds">"</span></span>,<span class="pl-c1">TRUE</span>,<span class="pl-c1">FALSE</span>)),
+                <span class="pl-v">family</span><span class="pl-k">=</span><span class="pl-s"><span class="pl-pds">"</span>binomial<span class="pl-pds">"</span></span>,<span class="pl-v">maxit</span><span class="pl-k">=</span><span class="pl-c1">100</span>)
+<span class="pl-smi">predictE52f</span><span class="pl-k">&lt;-</span>predict(<span class="pl-smi">logModE52f</span>,<span class="pl-smi">testing52f</span>,<span class="pl-v">type</span><span class="pl-k">=</span><span class="pl-s"><span class="pl-pds">"</span>response<span class="pl-pds">"</span></span>)
+<span class="pl-smi">logPredRaw52f</span><span class="pl-k">&lt;-</span><span class="pl-k">data.frame</span>(<span class="pl-smi">predictA52f</span>,<span class="pl-smi">predictB52f</span>,<span class="pl-smi">predictC52f</span>,<span class="pl-smi">predictD52f</span>,<span class="pl-smi">predictE52f</span>)
+<span class="pl-smi">logPred52f</span><span class="pl-k">&lt;-</span><span class="pl-k">factor</span>(apply(<span class="pl-smi">logPredRaw52f</span>,<span class="pl-c1">1</span>,<span class="pl-smi">which.max</span>),<span class="pl-v">labels</span><span class="pl-k">=</span>c(<span class="pl-s"><span class="pl-pds">"</span>A<span class="pl-pds">"</span></span>,<span class="pl-s"><span class="pl-pds">"</span>B<span class="pl-pds">"</span></span>,<span class="pl-s"><span class="pl-pds">"</span>C<span class="pl-pds">"</span></span>,<span class="pl-s"><span class="pl-pds">"</span>D<span class="pl-pds">"</span></span>,<span class="pl-s"><span class="pl-pds">"</span>E<span class="pl-pds">"</span></span>))
+<span class="pl-smi">logModA88f</span><span class="pl-k">&lt;-</span>glm(<span class="pl-smi">classe</span><span class="pl-k">~</span>.,mutate(<span class="pl-smi">training88f</span>,<span class="pl-v">classe</span><span class="pl-k">=</span>ifelse(<span class="pl-smi">classe</span><span class="pl-k">==</span><span class="pl-s"><span class="pl-pds">"</span>A<span class="pl-pds">"</span></span>,<span class="pl-c1">TRUE</span>,<span class="pl-c1">FALSE</span>)),
+                <span class="pl-v">family</span><span class="pl-k">=</span><span class="pl-s"><span class="pl-pds">"</span>binomial<span class="pl-pds">"</span></span>,<span class="pl-v">maxit</span><span class="pl-k">=</span><span class="pl-c1">100</span>)
+<span class="pl-smi">predictA88f</span><span class="pl-k">&lt;-</span>predict(<span class="pl-smi">logModA88f</span>,<span class="pl-smi">testing88f</span>,<span class="pl-v">type</span><span class="pl-k">=</span><span class="pl-s"><span class="pl-pds">"</span>response<span class="pl-pds">"</span></span>)
+<span class="pl-smi">logModB88f</span><span class="pl-k">&lt;-</span>glm(<span class="pl-smi">classe</span><span class="pl-k">~</span>.,mutate(<span class="pl-smi">training88f</span>,<span class="pl-v">classe</span><span class="pl-k">=</span>ifelse(<span class="pl-smi">classe</span><span class="pl-k">==</span><span class="pl-s"><span class="pl-pds">"</span>B<span class="pl-pds">"</span></span>,<span class="pl-c1">TRUE</span>,<span class="pl-c1">FALSE</span>)),
+                <span class="pl-v">family</span><span class="pl-k">=</span><span class="pl-s"><span class="pl-pds">"</span>binomial<span class="pl-pds">"</span></span>,<span class="pl-v">maxit</span><span class="pl-k">=</span><span class="pl-c1">100</span>)
+<span class="pl-smi">predictB88f</span><span class="pl-k">&lt;-</span>predict(<span class="pl-smi">logModB88f</span>,<span class="pl-smi">testing88f</span>,<span class="pl-v">type</span><span class="pl-k">=</span><span class="pl-s"><span class="pl-pds">"</span>response<span class="pl-pds">"</span></span>)
+<span class="pl-smi">logModC88f</span><span class="pl-k">&lt;-</span>glm(<span class="pl-smi">classe</span><span class="pl-k">~</span>.,mutate(<span class="pl-smi">training88f</span>,<span class="pl-v">classe</span><span class="pl-k">=</span>ifelse(<span class="pl-smi">classe</span><span class="pl-k">==</span><span class="pl-s"><span class="pl-pds">"</span>C<span class="pl-pds">"</span></span>,<span class="pl-c1">TRUE</span>,<span class="pl-c1">FALSE</span>)),
+                <span class="pl-v">family</span><span class="pl-k">=</span><span class="pl-s"><span class="pl-pds">"</span>binomial<span class="pl-pds">"</span></span>,<span class="pl-v">maxit</span><span class="pl-k">=</span><span class="pl-c1">100</span>)
+<span class="pl-smi">predictC88f</span><span class="pl-k">&lt;-</span>predict(<span class="pl-smi">logModC88f</span>,<span class="pl-smi">testing88f</span>,<span class="pl-v">type</span><span class="pl-k">=</span><span class="pl-s"><span class="pl-pds">"</span>response<span class="pl-pds">"</span></span>)
+<span class="pl-smi">logModD88f</span><span class="pl-k">&lt;-</span>glm(<span class="pl-smi">classe</span><span class="pl-k">~</span>.,mutate(<span class="pl-smi">training88f</span>,<span class="pl-v">classe</span><span class="pl-k">=</span>ifelse(<span class="pl-smi">classe</span><span class="pl-k">==</span><span class="pl-s"><span class="pl-pds">"</span>D<span class="pl-pds">"</span></span>,<span class="pl-c1">TRUE</span>,<span class="pl-c1">FALSE</span>)),
+                <span class="pl-v">family</span><span class="pl-k">=</span><span class="pl-s"><span class="pl-pds">"</span>binomial<span class="pl-pds">"</span></span>,<span class="pl-v">maxit</span><span class="pl-k">=</span><span class="pl-c1">100</span>)
+<span class="pl-smi">predictD88f</span><span class="pl-k">&lt;-</span>predict(<span class="pl-smi">logModD88f</span>,<span class="pl-smi">testing88f</span>,<span class="pl-v">type</span><span class="pl-k">=</span><span class="pl-s"><span class="pl-pds">"</span>response<span class="pl-pds">"</span></span>)
+<span class="pl-smi">logModE88f</span><span class="pl-k">&lt;-</span>glm(<span class="pl-smi">classe</span><span class="pl-k">~</span>.,mutate(<span class="pl-smi">training88f</span>,<span class="pl-v">classe</span><span class="pl-k">=</span>ifelse(<span class="pl-smi">classe</span><span class="pl-k">==</span><span class="pl-s"><span class="pl-pds">"</span>E<span class="pl-pds">"</span></span>,<span class="pl-c1">TRUE</span>,<span class="pl-c1">FALSE</span>)),
+                <span class="pl-v">family</span><span class="pl-k">=</span><span class="pl-s"><span class="pl-pds">"</span>binomial<span class="pl-pds">"</span></span>,<span class="pl-v">maxit</span><span class="pl-k">=</span><span class="pl-c1">100</span>)
+<span class="pl-smi">predictE88f</span><span class="pl-k">&lt;-</span>predict(<span class="pl-smi">logModE88f</span>,<span class="pl-smi">testing88f</span>,<span class="pl-v">type</span><span class="pl-k">=</span><span class="pl-s"><span class="pl-pds">"</span>response<span class="pl-pds">"</span></span>)
+<span class="pl-smi">logPredRaw88f</span><span class="pl-k">&lt;-</span><span class="pl-k">data.frame</span>(<span class="pl-smi">predictA88f</span>,<span class="pl-smi">predictB88f</span>,<span class="pl-smi">predictC88f</span>,<span class="pl-smi">predictD88f</span>,<span class="pl-smi">predictE88f</span>)
+<span class="pl-smi">logPred88f</span><span class="pl-k">&lt;-</span><span class="pl-k">factor</span>(apply(<span class="pl-smi">logPredRaw88f</span>,<span class="pl-c1">1</span>,<span class="pl-smi">which.max</span>),<span class="pl-v">labels</span><span class="pl-k">=</span>c(<span class="pl-s"><span class="pl-pds">"</span>A<span class="pl-pds">"</span></span>,<span class="pl-s"><span class="pl-pds">"</span>B<span class="pl-pds">"</span></span>,<span class="pl-s"><span class="pl-pds">"</span>C<span class="pl-pds">"</span></span>,<span class="pl-s"><span class="pl-pds">"</span>D<span class="pl-pds">"</span></span>,<span class="pl-s"><span class="pl-pds">"</span>E<span class="pl-pds">"</span></span>))
+<span class="pl-smi">rfConfMat16f</span><span class="pl-k">&lt;-</span>confusionMatrix(<span class="pl-smi">rfPred16f</span>,<span class="pl-smi">testing16f</span><span class="pl-k">$</span><span class="pl-smi">classe</span>)
+<span class="pl-smi">rfAccuracy16f</span><span class="pl-k">&lt;-</span><span class="pl-smi">rfConfMat16f</span>[[<span class="pl-c1">3</span>]][<span class="pl-c1">1</span>]
+<span class="pl-smi">rfConfMat52f</span><span class="pl-k">&lt;-</span>confusionMatrix(<span class="pl-smi">rfPred52f</span>,<span class="pl-smi">testing52f</span><span class="pl-k">$</span><span class="pl-smi">classe</span>)
+<span class="pl-smi">rfAccuracy52f</span><span class="pl-k">&lt;-</span><span class="pl-smi">rfConfMat52f</span>[[<span class="pl-c1">3</span>]][<span class="pl-c1">1</span>]
+<span class="pl-smi">rfConfMat88f</span><span class="pl-k">&lt;-</span>confusionMatrix(<span class="pl-smi">rfPred88f</span>,<span class="pl-smi">testing88f</span><span class="pl-k">$</span><span class="pl-smi">classe</span>)
+<span class="pl-smi">rfAccuracy88f</span><span class="pl-k">&lt;-</span><span class="pl-smi">rfConfMat88f</span>[[<span class="pl-c1">3</span>]][<span class="pl-c1">1</span>]
+<span class="pl-smi">nnConfMat16f</span><span class="pl-k">&lt;-</span>confusionMatrix(<span class="pl-smi">nnPred16f</span>,<span class="pl-smi">testing16f</span><span class="pl-k">$</span><span class="pl-smi">classe</span>)
+<span class="pl-smi">nnAccuracy16f</span><span class="pl-k">&lt;-</span><span class="pl-smi">nnConfMat16f</span>[[<span class="pl-c1">3</span>]][<span class="pl-c1">1</span>]
+<span class="pl-smi">nnConfMat52f</span><span class="pl-k">&lt;-</span>confusionMatrix(<span class="pl-smi">nnPred52f</span>,<span class="pl-smi">testing52f</span><span class="pl-k">$</span><span class="pl-smi">classe</span>)
+<span class="pl-smi">nnAccuracy52f</span><span class="pl-k">&lt;-</span><span class="pl-smi">nnConfMat52f</span>[[<span class="pl-c1">3</span>]][<span class="pl-c1">1</span>]
+<span class="pl-smi">nnConfMat88f</span><span class="pl-k">&lt;-</span>confusionMatrix(<span class="pl-smi">nnPred88f</span>,<span class="pl-smi">testing88f</span><span class="pl-k">$</span><span class="pl-smi">classe</span>)
+<span class="pl-smi">nnAccuracy88f</span><span class="pl-k">&lt;-</span><span class="pl-smi">nnConfMat88f</span>[[<span class="pl-c1">3</span>]][<span class="pl-c1">1</span>]
+<span class="pl-smi">logConfMat16f</span><span class="pl-k">&lt;-</span>confusionMatrix(<span class="pl-smi">logPred16f</span>,<span class="pl-smi">testing16f</span><span class="pl-k">$</span><span class="pl-smi">classe</span>)
+<span class="pl-smi">logAccuracy16f</span><span class="pl-k">&lt;-</span><span class="pl-smi">logConfMat16f</span>[[<span class="pl-c1">3</span>]][<span class="pl-c1">1</span>]
+<span class="pl-smi">logConfMat52f</span><span class="pl-k">&lt;-</span>confusionMatrix(<span class="pl-smi">logPred52f</span>,<span class="pl-smi">testing52f</span><span class="pl-k">$</span><span class="pl-smi">classe</span>)
+<span class="pl-smi">logAccuracy52f</span><span class="pl-k">&lt;-</span><span class="pl-smi">logConfMat52f</span>[[<span class="pl-c1">3</span>]][<span class="pl-c1">1</span>]
+<span class="pl-smi">logConfMat88f</span><span class="pl-k">&lt;-</span>confusionMatrix(<span class="pl-smi">logPred88f</span>,<span class="pl-smi">testing88f</span><span class="pl-k">$</span><span class="pl-smi">classe</span>)
+<span class="pl-smi">logAccuracy88f</span><span class="pl-k">&lt;-</span><span class="pl-smi">logConfMat88f</span>[[<span class="pl-c1">3</span>]][<span class="pl-c1">1</span>]
+<span class="pl-smi">accuracies</span><span class="pl-k">&lt;-</span><span class="pl-k">data.frame</span>(<span class="pl-v">RandomForest</span><span class="pl-k">=</span>c(<span class="pl-smi">rfAccuracy16f</span>,<span class="pl-smi">rfAccuracy52f</span>,<span class="pl-smi">rfAccuracy88f</span>),
+                       <span class="pl-v">Multinom</span><span class="pl-k">=</span>c(<span class="pl-smi">nnAccuracy16f</span>,<span class="pl-smi">nnAccuracy52f</span>,<span class="pl-smi">nnAccuracy88f</span>),
+                       <span class="pl-v">LogisticRegression</span><span class="pl-k">=</span>c(<span class="pl-smi">logAccuracy16f</span>,<span class="pl-smi">logAccuracy52f</span>,<span class="pl-smi">logAccuracy88f</span>),
+                       <span class="pl-v">row.names</span><span class="pl-k">=</span>c(<span class="pl-s"><span class="pl-pds">"</span>16Predictors<span class="pl-pds">"</span></span>,<span class="pl-s"><span class="pl-pds">"</span>52Predictors<span class="pl-pds">"</span></span>,<span class="pl-s"><span class="pl-pds">"</span>88Predictors<span class="pl-pds">"</span></span>))</pre></div>
+
+<h1>
+<a id="weight-lifting-activity-recognition" class="anchor" href="#weight-lifting-activity-recognition" aria-hidden="true"><span class="octicon octicon-link"></span></a>Weight Lifting Activity Recognition</h1>
+
+<h2>
+<a id="introduction" class="anchor" href="#introduction" aria-hidden="true"><span class="octicon octicon-link"></span></a>Introduction</h2>
+
+<p>The goal of this project is to obtain an algorithm that can evaluate the manner in which a person has performed a dumbbell curl, whether correctly or falling into one of 4 common mistakes, using data from accelerometers on the belt, forearm, arm, and on the dumbbell itself. The source of the data is <a href="http://groupware.les.inf.puc-rio.br/har#weight_lifting_exercises">http://groupware.les.inf.puc-rio.br/har#weight_lifting_exercises</a> and it was presented in:<br>
+Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013.<br>
+(a link to the document is available at the end of the indicated page)</p>
+
+<h2>
+<a id="dataset-exploration-and-analysis" class="anchor" href="#dataset-exploration-and-analysis" aria-hidden="true"><span class="octicon octicon-link"></span></a>Dataset exploration and analysis</h2>
+
+<p>The dataset contains the following types of information:</p>
+
+<ul>
+<li>Participant identifier (there were 6 different participants)</li>
+<li>Timestamps for beginning and end of each observation</li>
+<li>Statistical analysis data (observations grouped into windows, each with a window identifier and summary information that describes the distribution of values over that window)</li>
+<li>Sensor data These are all the variables that start with "pitch_", "roll_", "total_accel_", "yaw_" (spherical magnitudes) or end with "_x", "_y" or "_z" (cartesian magtnitudes). </li>
+<li>Identifier for how the exercise was performed:<br>
+A-Exactly according to the specification<br>
+B-Throwing the elbows to the front<br>
+C-lifting the dumbbell only halfway<br>
+D-lowering the dumbbell only halfway<br>
+E-throwing the hips to the front<br>
+</li>
+</ul>
+
+<p>Each observation corresponds to one 'rep' (a repetition of the curl exercise). </p>
+
+<p>The sensor data will be used as predictors. </p>
+
+<p>3 different sets of data were analyzed:  </p>
+
+<ul>
+<li>Spherical magnitudes only. Having both Tait-Bryan angles and magnitude (spherical coordinates) and 3-Dimensional euclidean space x,y,z (cartesian magnitudes} is actually two ways of expressing the same information, and the information is redundant. Using just one set reduces the amount of data in the model, making it faster to train. The Spherical coordinates are easier to interpret intuitively and that is why I have chosen this set. The resulting dataset uses 16 predictors. Note: Another possibility for obtaining a smaller dataset would have been to apply principal component analysis but the results are likely less intuitive, that is why I didn't choose them.</li>
+<li>Full spherical and cartesian coordinates. Even though the information is redundant, keeping both spherical and cartesian coordinates can be an effective way to have covariates and solve underfit problems. The resulting dataset has 52 predictors.</li>
+<li>Cross-product cartesian features. One possibility for additional covariates are the cartesian xy, xz and yz cross-products. For models where underfit is a problem these can improve the resulting accuracy. The resulting dataset has 88 predictors</li>
+</ul>
+
+<p>The Identifier for how the exercise was performed, classe, will be the outcome of the algorithm and it needs to be included in the datasets as well. </p>
+
+<p>We want to get partitions that are varied and not skewed towards specific outcomes or participants so we will use classe and user_name for partitioning. We will use 60% of the data for training and 40% for testing. Testing data will not be used for refining the model so it is not necessary to further add a validation set. Cross-validation and Out of sample error estimation will be performed on the testing set.</p>
+
+<p>The participant identifier is not used as a predictor in order to obtain a general algorithm that is not specific to an individual participant. The statistical analysis data must not be used as a predictor as it is specific to this dataset and not generalizable to future data.</p>
+
+<p>To get an idea of what the data looks like, we can see the plot for the Tait-Bryan angles and magnitude features</p>
+
+<div class="highlight highlight-source-r"><pre><span class="pl-smi">plt</span><span class="pl-k">&lt;-</span>featurePlot(<span class="pl-v">x</span><span class="pl-k">=</span><span class="pl-smi">pml</span>[grepl(<span class="pl-s"><span class="pl-pds">"</span>^roll_|^yaw_|^pitch_|^total_accel_<span class="pl-pds">"</span></span>,names(<span class="pl-smi">pml</span>))],
+                 <span class="pl-v">y</span><span class="pl-k">=</span><span class="pl-smi">pml</span><span class="pl-k">$</span><span class="pl-smi">classe</span>,<span class="pl-v">plot</span><span class="pl-k">=</span><span class="pl-s"><span class="pl-pds">"</span>boxplot<span class="pl-pds">"</span></span>,<span class="pl-v">layout</span><span class="pl-k">=</span>c(<span class="pl-c1">4</span>,<span class="pl-c1">4</span>))
+print(<span class="pl-smi">plt</span>)</pre></div>
+
+<h2>
+<a id="algorithm-and-results" class="anchor" href="#algorithm-and-results" aria-hidden="true"><span class="octicon octicon-link"></span></a>Algorithm and results</h2>
+
+<p>We are looking for a categorical result therefore we need a classifier. The outcome is available therefore supervised learning techniques will be more effective. Several modeling techniques were explored: Logistic regression, neural networks and Random forests. In terms of computational requirements, random forests are the slowest, requiring a very significant amount of training time as the number of features grows. Neural networks were the fastest to train but the accuracy with these feature sets was lower than the other methods. Accuracy improved with the addition of features, suggesting that it may be possible to improve the model by adding new features (e.g., we could add squared cartesian magnitudes). Logistic regression was slightly slower than neural networks but they provided perfect accuracy even on the small feature set. Training the logistic regression on the larger feature set took less time than the random forests on the smaller set. We use cross-validation as a training option.</p>
+
+<p>The percentual Out of sample error estimates obtained from cross-validation on the different models and feature sets are the following:</p>
+
+<div class="highlight highlight-source-r"><pre>round(<span class="pl-c1">100</span><span class="pl-k">*</span>(<span class="pl-c1">1</span><span class="pl-k">-</span><span class="pl-smi">accuracies</span>),<span class="pl-c1">2</span>)</pre></div>
+
+<p>Based on these results our recommendation is to apply Random Forest using the medium feature set (rfMod52f), or possibly the small feature set (rfMod16f) if training performance is a concern. Their confusion matrices are:  </p>
+
+<div class="highlight highlight-source-r"><pre><span class="pl-smi">rfConfMat16f</span>
+<span class="pl-smi">rfconfMat52f</span></pre></div>
+
+<p>Applying these 2 algorithms to the provided Test Data Set result in:</p>
+
+<div class="highlight highlight-source-r"><pre><span class="pl-smi">TestSet</span><span class="pl-k">&lt;-</span>read.csv2(<span class="pl-s"><span class="pl-pds">"</span>pml-testing.csv<span class="pl-pds">"</span></span>, <span class="pl-v">header</span><span class="pl-k">=</span><span class="pl-c1">TRUE</span>, <span class="pl-v">sep</span> <span class="pl-k">=</span> <span class="pl-s"><span class="pl-pds">"</span>,<span class="pl-pds">"</span></span>, <span class="pl-v">dec</span><span class="pl-k">=</span><span class="pl-s"><span class="pl-pds">"</span>.<span class="pl-pds">"</span></span>, <span class="pl-v">na.strings</span><span class="pl-k">=</span><span class="pl-s"><span class="pl-pds">"</span>NA<span class="pl-pds">"</span></span>)
+<span class="pl-k">data.frame</span>(<span class="pl-v">rfMod16f</span><span class="pl-k">=</span>predict(<span class="pl-smi">rfMod16f</span>,<span class="pl-smi">TestSet</span>),<span class="pl-v">rfMod52f</span><span class="pl-k">=</span>predict(<span class="pl-smi">rfMod52f</span>,<span class="pl-smi">TestSet</span>))</pre></div>
+
+<p>Both sets of predicted outcomes are identical.</p>
+
+<h2>
+<a id="appendix-reference-code" class="anchor" href="#appendix-reference-code" aria-hidden="true"><span class="octicon octicon-link"></span></a>Appendix: Reference Code</h2>
+
+<pre><code></code></pre>
+
+      <footer class="site-footer">
+        <span class="site-footer-owner"><a href="https://github.com/ELearningRufian/predmachlearn">Predmachlearn</a> is maintained by <a href="https://github.com/ELearningRufian">ELearningRufian</a>.</span>
+
+        <span class="site-footer-credits">This page was generated by <a href="https://pages.github.com">GitHub Pages</a> using the <a href="https://github.com/jasonlong/cayman-theme">Cayman theme</a> by <a href="https://twitter.com/jasonlong">Jason Long</a>.</span>
+      </footer>
+
+    </section>
+
+  
+  </body>
+</html>
