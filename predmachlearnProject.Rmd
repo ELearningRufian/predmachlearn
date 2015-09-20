@@ -2,7 +2,7 @@
 title: "Predicting the quality of dumbbell curl exercises"
 author: "Eusebio Rufian-Zilbermann"
 output: html_document
-geometry: top=0.5in, bottom=1in
+geometry: top=0.5in, bottom=1in, left=1in, right=1in
 ---
 ```{r Code, echo=FALSE, results='hide', warning=FALSE, message=FALSE, cache=TRUE}
 require(doParallel)
@@ -195,7 +195,8 @@ We want to get partitions that are varied and not skewed towards specific outcom
 The participant identifier is not used as a predictor in order to obtain a general algorithm that is not specific to an individual participant. The statistical analysis data must not be used as a predictor as it is specific to this dataset and not generalizable to future data.
 
 To get an idea of what the data looks like, we can see the plot for the Tait-Bryan angles and magnitude features
-```{r featurePlot, fig.width=10, fig.height=10}
+```{r featurePlot, message=FALSE, fig.width=10, fig.height=10}
+require(caret)
 plt<-featurePlot(x=pml[grepl("^roll_|^yaw_|^pitch_|^total_accel_",names(pml))],
                  y=pml$classe,plot="boxplot",layout=c(4,4))
 print(plt)
@@ -206,7 +207,6 @@ Algorithm and results
 We are looking for a categorical result therefore we need a classifier. The outcome is available therefore supervised learning techniques will be more effective. Several modeling techniques were explored: Logistic regression, neural networks and Random forests. In terms of computational requirements, random forests are the slowest, requiring a very significant amount of training time as the number of features grows. Neural networks were the fastest to train but the accuracy with these feature sets was lower than the other methods. Accuracy improved with the addition of features, suggesting that it may be possible to improve the model by adding new features (e.g., we could add squared cartesian magnitudes). Logistic regression was slightly slower than neural networks but they provided perfect accuracy even on the small feature set. Training the logistic regression on the larger feature set took less time than the random forests on the smaller set. We use cross-validation as a training option.
 
 The percentual Out of sample error estimates obtained from cross-validation on the different models and feature sets are the following:
-
 ```{r} 
 round(100*(1-accuracies),2)
 ```
@@ -214,11 +214,11 @@ round(100*(1-accuracies),2)
 Based on these results our recommendation is to apply Random Forest using the medium feature set (rfMod52f), or possibly the small feature set (rfMod16f) if training performance is a concern. Their confusion matrices are:  
 ```{r} 
 rfConfMat16f
-rfconfMat52f
+rfConfMat52f
 ```
 
 Applying these 2 algorithms to the provided Test Data Set result in:
-```{r}
+```{r, warning=FALSE, message=FALSE}
 TestSet<-read.csv2("pml-testing.csv", header=TRUE, sep = ",", dec=".", na.strings="NA")
 data.frame(rfMod16f=predict(rfMod16f,TestSet),rfMod52f=predict(rfMod52f,TestSet))
 ```
